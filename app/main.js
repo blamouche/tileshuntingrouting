@@ -234,6 +234,17 @@ document.getElementById('reset-strava').addEventListener('click', function() {
   localStorage.removeItem('tiles_visited');
   location.reload();
 });
+// Bouton pour réinitialiser l'itinéraire
+document.getElementById('reset-route').addEventListener('click', function() {
+  if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+  if (fromMarker) { map.removeLayer(fromMarker); fromMarker = null; }
+  if (toMarker) { map.removeLayer(toMarker); toMarker = null; }
+  fromCoords = null;
+  toCoords = null;
+  document.getElementById('from').value = '';
+  document.getElementById('to').value = '';
+  showRouteInfo(null);
+});
 // --- Authentification Strava ---
 document.getElementById('strava-login').addEventListener('click', function() {
   window.location.href = '/strava/login';
@@ -431,6 +442,20 @@ function showRouteInfo(distance) {
   }
 }
 
+async function getBikeRoute(start, end) {
+  const url = `https://brouter.de/brouter?lonlats=${start[1]},${start[0]}|${end[1]},${end[0]}&profile=fastbike&format=geojson`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Erreur de routing');
+  const data = await res.json();
+  if (!data.features || !data.features[0]) throw new Error('Route invalide');
+  const coords = data.features[0].geometry.coordinates.map(c => [c[1], c[0]]);
+  let dist = 0;
+  for (let i = 1; i < coords.length; i++) {
+    dist += map.distance(coords[i - 1], coords[i]);
+  }
+  return { coords, distance: dist };
+}
+
 function getTileIndices(lat, lng) {
   const mileInKm = 1.60934;
   const degLat = mileInKm / 111.32;
@@ -489,17 +514,16 @@ function findRouteAvoidingTiles(start, end) {
   return null;
 }
 
-document.getElementById('route-btn').addEventListener('click', function() {
+document.getElementById('route-btn').addEventListener('click', async function() {
   if (!fromCoords || !toCoords) {
     alert('Veuillez sélectionner un point de départ et d\'arrivée.');
     return;
   }
-  const path = findRouteAvoidingTiles(fromCoords, toCoords);
-  if (path && path.length > 1) {
-    drawRoute(path);
-    const distance = (path.length - 1) * 1.60934 * 1000;
+  try {
+    const { coords, distance } = await getBikeRoute(fromCoords, toCoords);
+    drawRoute(coords);
     showRouteInfo(distance);
-  } else {
+  } catch (e) {
     showRouteInfo(null);
     alert('Aucun itinéraire trouvé.');
   }
