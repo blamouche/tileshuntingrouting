@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Carte et Itinéraire Open Source</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    #map { height: 80vh; width: 100%; margin-bottom: 1em; }
+    .search-container { margin-bottom: 1em; }
+    input { padding: 0.5em; width: 300px; }
+    ul.autocomplete { list-style: none; padding: 0; margin: 0; background: #fff; border: 1px solid #ccc; max-height: 150px; overflow-y: auto; position: absolute; z-index: 1000; width: 300px; }
+    ul.autocomplete li { padding: 0.5em; cursor: pointer; }
+    ul.autocomplete li:hover { background: #eee; }
+  </style>
+</head>
+<body>
+  <h1>Carte et calcul d'itinéraire</h1>
+  <div class="search-container">
+    <input id="from" placeholder="Départ" autocomplete="off" />
+    <div id="from-autocomplete"></div>
+    <input id="to" placeholder="Arrivée" autocomplete="off" />
+    <div id="to-autocomplete"></div>
+    <select id="profile">
+      <option value="driving">Voiture</option>
+      <option value="cycling">Vélo</option>
+      <option value="walking">Piéton</option>
+    </select>
+    <button id="route-btn">Calculer l'itinéraire</button>
+    <button id="strava-login" style="margin-left:1em;">Connexion Strava</button>
+    <button id="stop-import" style="margin-left:1em;">Stopper l'import Strava</button>
+    <button id="reset-strava" style="margin-left:1em;">Réinitialiser les activités</button>
+  </div>
+  <div id="map"></div>
+  <div id="route-info" style="margin-top:1em;font-weight:bold;"></div>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
