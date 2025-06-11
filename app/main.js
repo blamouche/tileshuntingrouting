@@ -302,8 +302,66 @@ map.on('moveend zoomend', () => {
 });
 drawGrid();
 
+function hideContextMenu() {
+  if (contextMenu) {
+    map.getContainer().removeChild(contextMenu);
+    contextMenu = null;
+  }
+}
+
+function showContextMenu(e) {
+  hideContextMenu();
+  contextMenu = document.createElement('div');
+  contextMenu.style.position = 'absolute';
+  contextMenu.style.background = '#fff';
+  contextMenu.style.border = '1px solid #ccc';
+  contextMenu.style.zIndex = 10000;
+  contextMenu.innerHTML = '<div id="ctx-start" style="padding:0.5em;cursor:pointer;">D\u00e9finir comme d\u00e9part</div>' +
+                          '<div id="ctx-end" style="padding:0.5em;cursor:pointer;">D\u00e9finir comme arriv\u00e9e</div>';
+  contextMenu.style.left = e.containerPoint.x + 'px';
+  contextMenu.style.top = e.containerPoint.y + 'px';
+  map.getContainer().appendChild(contextMenu);
+  document.getElementById('ctx-start').addEventListener('click', () => {
+    selectStart(e.latlng);
+    hideContextMenu();
+  });
+  document.getElementById('ctx-end').addEventListener('click', () => {
+    selectEnd(e.latlng);
+    hideContextMenu();
+  });
+}
+
+map.on('contextmenu', showContextMenu);
+map.on('click', hideContextMenu);
+
+function reverseGeocode(lat, lon, cb) {
+  fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`)
+    .then(res => res.json())
+    .then(data => cb(data.display_name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`))
+    .catch(() => cb(`${lat.toFixed(5)}, ${lon.toFixed(5)}`));
+}
+
+function selectStart(latlng) {
+  fromCoords = [latlng.lat, latlng.lng];
+  if (fromMarker) map.removeLayer(fromMarker);
+  fromMarker = L.marker(latlng).addTo(map).bindPopup('D\u00e9part').openPopup();
+  reverseGeocode(latlng.lat, latlng.lng, txt => {
+    document.getElementById('from').value = txt;
+  });
+}
+
+function selectEnd(latlng) {
+  toCoords = [latlng.lat, latlng.lng];
+  if (toMarker) map.removeLayer(toMarker);
+  toMarker = L.marker(latlng).addTo(map).bindPopup('Arriv\u00e9e').openPopup();
+  reverseGeocode(latlng.lat, latlng.lng, txt => {
+    document.getElementById('to').value = txt;
+  });
+}
+
 let fromMarker = null, toMarker = null, routeLayer = null;
 let fromCoords = null, toCoords = null;
+let contextMenu = null;
 
 function createAutocomplete(inputId, autocompleteId, onSelect) {
   const input = document.getElementById(inputId);
@@ -373,27 +431,76 @@ function showRouteInfo(distance) {
   }
 }
 
+function getTileIndices(lat, lng) {
+  const mileInKm = 1.60934;
+  const degLat = mileInKm / 111.32;
+  const degLng = mileInKm / (111.32 * Math.cos(lat * Math.PI / 180));
+  return {
+    tileLat: Math.floor(lat / degLat),
+    tileLng: Math.floor(lng / degLng)
+  };
+}
+
+function tileCenter(tileLat, tileLng) {
+  const mileInKm = 1.60934;
+  const degLat = mileInKm / 111.32;
+  const lat = (tileLat + 0.5) * degLat;
+  const degLng = mileInKm / (111.32 * Math.cos(lat * Math.PI / 180));
+  const lng = (tileLng + 0.5) * degLng;
+  return [lat, lng];
+}
+
+function findRouteAvoidingTiles(start, end) {
+  const startIdx = getTileIndices(start[0], start[1]);
+  const endIdx = getTileIndices(end[0], end[1]);
+  const startKey = `${startIdx.tileLat},${startIdx.tileLng}`;
+  const endKey = `${endIdx.tileLat},${endIdx.tileLng}`;
+  const avoid = new Set(tilesVisited);
+  avoid.delete(startKey);
+  avoid.delete(endKey);
+  const queue = [startIdx];
+  const parents = {};
+  parents[startKey] = null;
+  const visited = new Set([startKey]);
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  while (queue.length > 0 && visited.size < 10000) {
+    const cur = queue.shift();
+    const curKey = `${cur.tileLat},${cur.tileLng}`;
+    if (cur.tileLat === endIdx.tileLat && cur.tileLng === endIdx.tileLng) {
+      const tiles = [];
+      let k = curKey;
+      while (k) {
+        const [tLat, tLng] = k.split(',').map(Number);
+        tiles.push({tileLat:tLat, tileLng:tLng});
+        k = parents[k];
+      }
+      tiles.reverse();
+      return tiles.map(t => tileCenter(t.tileLat, t.tileLng));
+    }
+    for (const [dLat, dLng] of dirs) {
+      const n = {tileLat: cur.tileLat + dLat, tileLng: cur.tileLng + dLng};
+      const nKey = `${n.tileLat},${n.tileLng}`;
+      if (avoid.has(nKey) || visited.has(nKey)) continue;
+      visited.add(nKey);
+      parents[nKey] = curKey;
+      queue.push(n);
+    }
+  }
+  return null;
+}
+
 document.getElementById('route-btn').addEventListener('click', function() {
   if (!fromCoords || !toCoords) {
     alert('Veuillez sélectionner un point de départ et d\'arrivée.');
     return;
   }
-  const profile = document.getElementById('profile').value;
-  const url = `https://router.project-osrm.org/route/v1/${profile}/${fromCoords[1]},${fromCoords[0]};${toCoords[1]},${toCoords[0]}?overview=full&geometries=geojson`;
-  fetch(url)
-    .then(res => res.json())
-    .then(data => {
-      if (data.routes && data.routes.length > 0) {
-        const coords = data.routes[0].geometry.coordinates.map(([lon, lat]) => [lat, lon]);
-        drawRoute(coords);
-        showRouteInfo(data.routes[0].distance);
-      } else {
-        showRouteInfo(null);
-        alert('Aucun itinéraire trouvé.');
-      }
-    })
-    .catch(() => {
-      showRouteInfo(null);
-      alert('Erreur lors du calcul de l\'itinéraire.');
-    });
+  const path = findRouteAvoidingTiles(fromCoords, toCoords);
+  if (path && path.length > 1) {
+    drawRoute(path);
+    const distance = (path.length - 1) * 1.60934 * 1000;
+    showRouteInfo(distance);
+  } else {
+    showRouteInfo(null);
+    alert('Aucun itinéraire trouvé.');
+  }
 });
