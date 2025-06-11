@@ -2,7 +2,7 @@
 
 ## Présentation
 
-Tiles Hunting Routing est une application web JavaScript/Node.js permettant d’afficher une carte Leaflet avec un quadrillage « tiles hunting » (1 mile x 1 mile), d’importer et visualiser vos activités Strava, de colorier dynamiquement les tuiles traversées, de calculer des itinéraires (OSRM), d’utiliser l’autocomplétion d’adresses (Nominatim), et de garantir la persistance locale des données (localStorage). L’application gère également l’authentification Strava (OAuth2) et propose une expérience utilisateur fluide avec un loader non bloquant.
+Tiles Hunting Routing est une application web JavaScript/Node.js permettant d’afficher une carte Leaflet avec un quadrillage « tiles hunting » (1 mile x 1 mile), d’importer et visualiser vos activités Strava, de colorier dynamiquement les tuiles traversées, de calculer des itinéraires (API BRouter profil vélo), d’utiliser l’autocomplétion d’adresses (Nominatim), et de garantir la persistance locale des données (localStorage). L’application gère également l’authentification Strava (OAuth2) et propose une expérience utilisateur fluide avec un loader non bloquant.
 
 ## Fonctionnalités principales
 
@@ -10,11 +10,11 @@ Tiles Hunting Routing est une application web JavaScript/Node.js permettant d’
 - **Coloration automatique** des tuiles traversées par vos activités Strava (en rouge)
 - **Affichage de toutes les activités Strava** sur la carte (traces violettes)
 - **Import Strava** sécurisé via OAuth2 (connexion, callback, récupération du token, import par lots)
-- **Calcul d’itinéraires** (OSRM) avec choix du mode (marche, vélo, voiture) et affichage de la distance
+- **Calcul d’itinéraires** (API BRouter vélo) avec affichage de la distance
 - **Autocomplétion d’adresses** (Nominatim) pour le départ et l’arrivée
 - **Persistance locale** : activités et tuiles sauvegardées/restaurées via localStorage
 - **Loader non bloquant** (badge spinner en haut à droite) pendant les chargements/redessins
-- **Boutons** : Connexion Strava, Stopper import, Réinitialiser (efface localStorage)
+- **Boutons** : Connexion Strava, Stopper import, Réinitialiser (efface localStorage), RAZ itinéraire
 - **Vue par défaut** : zoom sur Lyon
 - **Gestion robuste du quadrillage et de l’affichage** (pas de doublons, pas de flou, redessin correct après zoom/déplacement)
 
@@ -67,7 +67,7 @@ Ouvrir [http://localhost:3000](http://localhost:3000) dans votre navigateur.
 ```
 app/
   index.html         # Frontend principal (carte, UI)
-  main.js            # Logique JS principale (Leaflet, Strava, OSRM, loader, etc.)
+  main.js            # Logique JS principale (Leaflet, Strava, BRouter, loader, etc.)
 server.js            # Serveur Node.js/Express (auth Strava, API)
 .env                 # Variables d’environnement (à créer)
 package.json         # Dépendances et scripts
@@ -78,7 +78,7 @@ package.json         # Dépendances et scripts
 - JavaScript (frontend pur, sans framework)
 - Node.js + Express (backend)
 - Leaflet (cartographie)
-- OSRM (calcul d’itinéraires)
+- BRouter (calcul d’itinéraires vélo)
 - Nominatim (autocomplétion d’adresses)
 - Strava API (OAuth2, activités)
 - localStorage (persistance locale)
