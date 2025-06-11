@@ -10,7 +10,7 @@ Tiles Hunting Routing est une application web JavaScript/Node.js permettant d’
 - **Coloration automatique** des tuiles traversées par vos activités Strava (en rouge)
 - **Affichage de toutes les activités Strava** sur la carte (traces violettes)
 - **Import Strava** sécurisé via OAuth2 (connexion, callback, récupération du token, import par lots)
-- **Calcul d’itinéraires** (API BRouter vélo) avec affichage de la distance
+- **Calcul d’itinéraires** (API BRouter vélo) avec affichage de la distance et itinéraires alternatifs en cas d'échec (évite au mieux les tuiles déjà visitées)
 - **Autocomplétion d’adresses** (Nominatim) pour le départ et l’arrivée
 - **Persistance locale** : activités et tuiles sauvegardées/restaurées via localStorage
 - **Loader non bloquant** (badge spinner en haut à droite) pendant les chargements/redessins
@@ -59,7 +59,7 @@ Ouvrir [http://localhost:3000](http://localhost:3000) dans votre navigateur.
 - **Connexion Strava** : Cliquez sur « Connexion Strava » pour importer vos activités.
 - **Stopper l’import** : Arrête l’import en cours (utile si vous avez beaucoup d’activités).
 - **Réinitialiser** : Efface toutes les activités et tuiles sauvegardées (localStorage).
-- **Calcul d’itinéraire** : Saisissez un départ et une arrivée (autocomplétion), choisissez le mode, cliquez sur « Calculer l’itinéraire ».
+- **Calcul d’itinéraire** : Saisissez un départ et une arrivée (autocomplétion), choisissez le mode, cliquez sur « Calculer l’itinéraire ». Plusieurs alternatives seront proposées si l’itinéraire principal échoue.
 - **Navigation sur la carte** : Le quadrillage et la coloration des tuiles s’adaptent dynamiquement au zoom/déplacement.
 
 ## Structure du projet

@@ -236,7 +236,10 @@ document.getElementById('reset-strava').addEventListener('click', function() {
 });
 // Bouton pour réinitialiser l'itinéraire
 document.getElementById('reset-route').addEventListener('click', function() {
-  if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+  if (routeLayers && routeLayers.length > 0) {
+    routeLayers.forEach(l => { try { map.removeLayer(l); } catch(e){} });
+    routeLayers = [];
+  }
   if (fromMarker) { map.removeLayer(fromMarker); fromMarker = null; }
   if (toMarker) { map.removeLayer(toMarker); toMarker = null; }
   fromCoords = null;
@@ -370,7 +373,7 @@ function selectEnd(latlng) {
   });
 }
 
-let fromMarker = null, toMarker = null, routeLayer = null;
+let fromMarker = null, toMarker = null, routeLayers = [];
 let fromCoords = null, toCoords = null;
 let contextMenu = null;
 
@@ -426,17 +429,29 @@ createAutocomplete('to', 'to-autocomplete', (place) => {
   map.setView(toCoords, 13);
 });
 
-function drawRoute(coords) {
-  if (routeLayer) map.removeLayer(routeLayer);
-  routeLayer = L.polyline(coords, {color: 'blue', weight: 5}).addTo(map);
-  map.fitBounds(routeLayer.getBounds());
+function drawRoutes(options) {
+  if (routeLayers && routeLayers.length > 0) {
+    routeLayers.forEach(l => {
+      try { map.removeLayer(l); } catch (e) {}
+    });
+  }
+  routeLayers = [];
+  const colors = ['blue', 'green', 'orange', 'purple'];
+  options.forEach((opt, idx) => {
+    const layer = L.polyline(opt.coords, {color: colors[idx % colors.length], weight: 5});
+    layer.addTo(map);
+    routeLayers.push(layer);
+  });
+  if (routeLayers.length > 0) {
+    const group = L.featureGroup(routeLayers);
+    map.fitBounds(group.getBounds());
+  }
 }
 
-function showRouteInfo(distance) {
+function showRouteInfo(options) {
   const infoDiv = document.getElementById('route-info');
-  if (distance != null) {
-    let km = (distance / 1000).toFixed(2);
-    infoDiv.textContent = `Distance de l'itinéraire : ${km} km`;
+  if (Array.isArray(options) && options.length > 0) {
+    infoDiv.innerHTML = options.map((o, i) => `Option ${i + 1} : ${(o.distance / 1000).toFixed(2)} km`).join('<br>');
   } else {
     infoDiv.textContent = '';
   }
@@ -514,17 +529,85 @@ function findRouteAvoidingTiles(start, end) {
   return null;
 }
 
+function pushSorted(queue, node) {
+  queue.push(node);
+  queue.sort((a, b) => a.cost - b.cost);
+}
+
+function findRouteWithPenalty(start, end, penalty) {
+  const startIdx = getTileIndices(start[0], start[1]);
+  const endIdx = getTileIndices(end[0], end[1]);
+  const startKey = `${startIdx.tileLat},${startIdx.tileLng}`;
+  const endKey = `${endIdx.tileLat},${endIdx.tileLng}`;
+  const costs = {};
+  const parents = {};
+  const queue = [];
+  pushSorted(queue, { tileLat: startIdx.tileLat, tileLng: startIdx.tileLng, cost: 0 });
+  costs[startKey] = 0;
+  parents[startKey] = null;
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  let iterations = 0;
+  while (queue.length > 0 && iterations < 20000) {
+    const cur = queue.shift();
+    const curKey = `${cur.tileLat},${cur.tileLng}`;
+    if (cur.tileLat === endIdx.tileLat && cur.tileLng === endIdx.tileLng) {
+      const tiles = [];
+      let k = curKey;
+      while (k) {
+        const [tLat, tLng] = k.split(',').map(Number);
+        tiles.push({ tileLat: tLat, tileLng: tLng });
+        k = parents[k];
+      }
+      tiles.reverse();
+      return tiles.map(t => tileCenter(t.tileLat, t.tileLng));
+    }
+    for (const [dLat, dLng] of dirs) {
+      const n = { tileLat: cur.tileLat + dLat, tileLng: cur.tileLng + dLng };
+      const nKey = `${n.tileLat},${n.tileLng}`;
+      let cost = cur.cost + (tilesVisited.has(nKey) ? penalty : 1);
+      if (costs[nKey] === undefined || cost < costs[nKey]) {
+        costs[nKey] = cost;
+        parents[nKey] = curKey;
+        pushSorted(queue, { tileLat: n.tileLat, tileLng: n.tileLng, cost });
+      }
+    }
+    iterations++;
+  }
+  return null;
+}
+
+async function getRouteOptions(start, end) {
+  const options = [];
+  try {
+    const { coords, distance } = await getBikeRoute(start, end);
+    options.push({ coords, distance });
+  } catch (e) {}
+  const penalties = [5, 10, 20];
+  for (const p of penalties) {
+    const coords = findRouteWithPenalty(start, end, p);
+    if (coords) {
+      let dist = 0;
+      for (let i = 1; i < coords.length; i++) {
+        dist += map.distance(coords[i - 1], coords[i]);
+      }
+      options.push({ coords, distance: dist });
+    }
+    if (options.length >= 3) break;
+  }
+  return options;
+}
+
 document.getElementById('route-btn').addEventListener('click', async function() {
   if (!fromCoords || !toCoords) {
-    alert('Veuillez sélectionner un point de départ et d\'arrivée.');
+    alert("Veuillez sélectionner un point de départ et d'arrivée.");
     return;
   }
-  try {
-    const { coords, distance } = await getBikeRoute(fromCoords, toCoords);
-    drawRoute(coords);
-    showRouteInfo(distance);
-  } catch (e) {
+  const options = await getRouteOptions(fromCoords, toCoords);
+  if (options.length === 0) {
     showRouteInfo(null);
     alert('Aucun itinéraire trouvé.');
+    return;
   }
+  drawRoutes(options);
+  showRouteInfo(options);
 });
