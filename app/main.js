@@ -123,70 +123,6 @@ async function loadStravaActivities() {
       // Sauvegarder tilesVisited dans le localStorage
       localStorage.setItem('tiles_visited', JSON.stringify(Array.from(tilesVisited)));
       colorTiles();
-
-// --- Coloration des tiles traversées par les activités ---
-function getTileKey(lat, lng) {
-  // Doit être cohérent avec le quadrillage (1 mile x 1 mile)
-  const mileInKm = 1.60934;
-  const degLat = mileInKm / 111.32;
-  // Pour la longitude, on prend la latitude du point
-  const degLng = mileInKm / (111.32 * Math.cos(lat * Math.PI / 180));
-  const tileLat = Math.floor(lat / degLat);
-  const tileLng = Math.floor(lng / degLng);
-  return `${tileLat},${tileLng}`;
-}
-
-function colorTiles() {
-  if (!map._gridLayers) return;
-  // On supprime d'abord les anciens rectangles
-  if (map._tileRects) {
-    map._tileRects.forEach(r => map.removeLayer(r));
-  }
-  map._tileRects = [];
-  // On doit retrouver les bornes du quadrillage
-  const mileInKm = 1.60934;
-  const degLat = mileInKm / 111.32;
-  // Pour la longitude, on prend la latitude du centre de la carte (approximation)
-  const centerLat = map.getCenter().lat * Math.PI / 180;
-  const degLng = mileInKm / (111.32 * Math.cos(centerLat));
-  let bounds = map.getBounds();
-  let minLat = Math.floor(bounds.getSouth() / degLat) * degLat;
-  let maxLat = Math.ceil(bounds.getNorth() / degLat) * degLat;
-  let minLng = Math.floor(bounds.getWest() / degLng) * degLng;
-  let maxLng = Math.ceil(bounds.getEast() / degLng) * degLng;
-  for (let tileLat = Math.floor(minLat / degLat); tileLat <= Math.floor(maxLat / degLat); tileLat++) {
-    for (let tileLng = Math.floor(minLng / degLng); tileLng <= Math.floor(maxLng / degLng); tileLng++) {
-      const key = `${tileLat},${tileLng}`;
-      if (tilesVisited.has(key)) {
-        // Rectangle de la tile
-        const lat0 = tileLat * degLat;
-        const lat1 = (tileLat + 1) * degLat;
-        const lng0 = tileLng * degLng;
-        const lng1 = (tileLng + 1) * degLng;
-        const rect = L.rectangle([[lat0, lng0], [lat1, lng1]], {
-          color: 'red',
-          weight: 1,
-          fillOpacity: 0.3,
-          fillColor: 'red',
-          interactive: false
-        }).addTo(map);
-        map._tileRects.push(rect);
-      }
-    }
-  }
-
-  // --- Redessiner toutes les polylignes Strava ---
-  if (stravaPolylines && stravaPolylines.length > 0) {
-    // Toujours retirer toutes les polylignes d'abord
-    stravaPolylines.forEach(obj => {
-      try { map.removeLayer(obj.polyline); } catch(e){}
-    });
-    // Puis les ajouter à la carte
-    stravaPolylines.forEach(obj => {
-      try { obj.polyline.addTo(map); } catch(e){}
-    });
-  }
-}
       if (found || activities.length < perPage) break;
       page++;
       await new Promise(r => setTimeout(r, 1000));
@@ -225,6 +161,62 @@ function decodePolyline(str) {
     coordinates.push([lat / 1e5, lng / 1e5]);
   }
   return coordinates;
+}
+
+// --- Coloration des tuiles traversées par les activités ---
+function getTileKey(lat, lng) {
+  const mileInKm = 1.60934;
+  const degLat = mileInKm / 111.32;
+  const degLng = mileInKm / (111.32 * Math.cos(lat * Math.PI / 180));
+  const tileLat = Math.floor(lat / degLat);
+  const tileLng = Math.floor(lng / degLng);
+  return `${tileLat},${tileLng}`;
+}
+
+function colorTiles() {
+  if (!map._gridLayers) return;
+  if (map._tileRects) {
+    map._tileRects.forEach(r => map.removeLayer(r));
+  }
+  map._tileRects = [];
+  const mileInKm = 1.60934;
+  const degLat = mileInKm / 111.32;
+  const centerLat = map.getCenter().lat * Math.PI / 180;
+  const degLng = mileInKm / (111.32 * Math.cos(centerLat));
+  const bounds = map.getBounds();
+  const minLat = Math.floor(bounds.getSouth() / degLat) * degLat;
+  const maxLat = Math.ceil(bounds.getNorth() / degLat) * degLat;
+  const minLng = Math.floor(bounds.getWest() / degLng) * degLng;
+  const maxLng = Math.ceil(bounds.getEast() / degLng) * degLng;
+
+  for (let tileLat = Math.floor(minLat / degLat); tileLat <= Math.floor(maxLat / degLat); tileLat++) {
+    for (let tileLng = Math.floor(minLng / degLng); tileLng <= Math.floor(maxLng / degLng); tileLng++) {
+      const key = `${tileLat},${tileLng}`;
+      if (tilesVisited.has(key)) {
+        const lat0 = tileLat * degLat;
+        const lat1 = (tileLat + 1) * degLat;
+        const lng0 = tileLng * degLng;
+        const lng1 = (tileLng + 1) * degLng;
+        const rect = L.rectangle([[lat0, lng0], [lat1, lng1]], {
+          color: 'red',
+          weight: 1,
+          fillOpacity: 0.3,
+          fillColor: 'red',
+          interactive: false
+        }).addTo(map);
+        map._tileRects.push(rect);
+      }
+    }
+  }
+
+  if (stravaPolylines && stravaPolylines.length > 0) {
+    stravaPolylines.forEach(obj => {
+      try { map.removeLayer(obj.polyline); } catch (e) {}
+    });
+    stravaPolylines.forEach(obj => {
+      try { obj.polyline.addTo(map); } catch (e) {}
+    });
+  }
 }
 
 
