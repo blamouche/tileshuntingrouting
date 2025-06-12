@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Boucle vélo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    #map { height: 80vh; width: 100%; margin-bottom:1em; }
+    nav { display:flex; gap:1em; margin-bottom:1em; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/index.html">Accueil</a>
+    <a href="/loop.html">Boucle vélo</a>
+  </nav>
+  <div>
+    <label for="distance">Distance (km) :</label>
+    <input id="distance" type="number" step="0.1" />
+    <button id="calc-btn">Calculer la boucle</button>
+  </div>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([45.75, 4.85], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+    let start = null;
+    let startMarker = null;
+    let routeLayer = null;
+
+    function destPoint(lat, lon, brng, distKm) {
+      const R = 6371;
+      const br = brng * Math.PI / 180;
+      const d = distKm / R;
+      const lat1 = lat * Math.PI / 180;
+      const lon1 = lon * Math.PI / 180;
+      const lat2 = Math.asin(Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(br));
+      const lon2 = lon1 + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(lat1), Math.cos(d) - Math.sin(lat1) * Math.sin(lat2));
+      return [lat2 * 180 / Math.PI, lon2 * 180 / Math.PI];
+    }
+
+    async function computeLoop() {
+      if (!start) { alert("Choisissez un point de départ"); return; }
+      const dist = parseFloat(document.getElementById('distance').value);
+      if (!dist || dist <= 0) { alert('Distance invalide'); return; }
+      const radius = dist / (2 * Math.PI);
+      const p1 = destPoint(start[0], start[1], 120, radius);
+      const p2 = destPoint(start[0], start[1], 240, radius);
+      const coords = [start, p1, p2, start];
+      const coordStr = coords.map(c => c[1]+','+c[0]).join(';');
+      const url = `https://router.project-osrm.org/route/v1/cycling/${coordStr}?overview=full&geometries=geojson`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!data.routes || !data.routes[0]) { alert('Itinéraire introuvable'); return; }
+      const pts = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+      if (routeLayer) { map.removeLayer(routeLayer); }
+      routeLayer = L.polyline(pts, {color:'blue'}).addTo(map);
+      map.fitBounds(routeLayer.getBounds());
+    }
+
+    map.on('contextmenu', function(e) {
+      const popup = L.popup()
+        .setLatLng(e.latlng)
+        .setContent('<button id="start-btn">Partir d\'ici</button>')
+        .openOn(map);
+      setTimeout(() => {
+        const btn = document.getElementById('start-btn');
+        if (btn) {
+          btn.addEventListener('click', () => {
+            start = [e.latlng.lat, e.latlng.lng];
+            if (startMarker) map.removeLayer(startMarker);
+            startMarker = L.marker(start).addTo(map).bindPopup('Départ').openPopup();
+            map.closePopup();
+          });
+        }
+      }, 0);
+    });
+
+    document.getElementById('calc-btn').addEventListener('click', computeLoop);
+  </script>
+</body>
+</html>
