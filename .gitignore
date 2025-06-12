@@ -1,0 +1,3 @@
+# Ne pas versionner les fichiers sensibles et node_modules
+.env
+node_modules/
