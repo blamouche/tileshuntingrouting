@@ -164,13 +164,14 @@ function decodePolyline(str) {
 }
 
 // --- Coloration des tuiles traversées par les activités ---
+// Découpage des tuiles selon le standard "Slippy Map Tilenames" (zoom 14)
 function getTileKey(lat, lng) {
-  const mileInKm = 1.60934;
-  const degLat = mileInKm / 111.32;
-  const degLng = mileInKm / (111.32 * Math.cos(lat * Math.PI / 180));
-  const tileLat = Math.floor(lat / degLat);
-  const tileLng = Math.floor(lng / degLng);
-  return `${tileLat},${tileLng}`;
+  // https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
+  const z = 14; // niveau de zoom VeloViewer/Statshunters
+  const n = Math.pow(2, z);
+  const xTile = Math.floor((lng + 180) / 360 * n);
+  const yTile = Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n);
+  return `${z},${xTile},${yTile}`;
 }
 
 function colorTiles() {
@@ -436,15 +437,16 @@ function drawRoutes(options) {
     });
   }
   routeLayers = [];
-  const colors = ['blue', 'green', 'orange', 'purple'];
-  options.forEach((opt, idx) => {
-    const layer = L.polyline(opt.coords, {color: colors[idx % colors.length], weight: 5});
+  // On n'affiche que l'itinéraire principal (OSRM)
+  if (options.length > 0) {
+    const layer = L.polyline(options[0].coords, {
+      color: 'blue',
+      weight: 5,
+      opacity: 0.8
+    });
     layer.addTo(map);
     routeLayers.push(layer);
-  });
-  if (routeLayers.length > 0) {
-    const group = L.featureGroup(routeLayers);
-    map.fitBounds(group.getBounds());
+    map.fitBounds(layer.getBounds());
   }
 }
 
@@ -457,44 +459,43 @@ function showRouteInfo(options) {
   }
 }
 
-async function getBikeRoute(start, end) {
-  const url = `https://brouter.de/brouter?lonlats=${start[1]},${start[0]}|${end[1]},${end[0]}&profile=fastbike&format=geojson`;
+
+// Routing OSRM (profil vélo, voiture ou piéton)
+async function getOsrmRoute(start, end, profile = 'cycling') {
+  // profile: 'cycling', 'driving', 'walking'
+  const url = `https://router.project-osrm.org/route/v1/${profile}/${start[1]},${start[0]};${end[1]},${end[0]}?overview=full&geometries=geojson`;
   const res = await fetch(url);
   if (!res.ok) throw new Error('Erreur de routing');
   const data = await res.json();
-  if (!data.features || !data.features[0]) throw new Error('Route invalide');
-  const coords = data.features[0].geometry.coordinates.map(c => [c[1], c[0]]);
-  let dist = 0;
-  for (let i = 1; i < coords.length; i++) {
-    dist += map.distance(coords[i - 1], coords[i]);
-  }
+  if (!data.routes || !data.routes[0]) throw new Error('Route invalide');
+  const coords = data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+  const dist = data.routes[0].distance;
   return { coords, distance: dist };
 }
 
+// Indices de tuiles OSM (zoom 14)
 function getTileIndices(lat, lng) {
-  const mileInKm = 1.60934;
-  const degLat = mileInKm / 111.32;
-  const degLng = mileInKm / (111.32 * Math.cos(lat * Math.PI / 180));
-  return {
-    tileLat: Math.floor(lat / degLat),
-    tileLng: Math.floor(lng / degLng)
-  };
+  const z = 14;
+  const n = Math.pow(2, z);
+  const xTile = Math.floor((lng + 180) / 360 * n);
+  const yTile = Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n);
+  return { z, xTile, yTile };
 }
 
-function tileCenter(tileLat, tileLng) {
-  const mileInKm = 1.60934;
-  const degLat = mileInKm / 111.32;
-  const lat = (tileLat + 0.5) * degLat;
-  const degLng = mileInKm / (111.32 * Math.cos(lat * Math.PI / 180));
-  const lng = (tileLng + 0.5) * degLng;
+// Centre d'une tuile OSM (zoom 14)
+function tileCenter(xTile, yTile, z = 14) {
+  const n = Math.pow(2, z);
+  const lng = xTile / n * 360 - 180;
+  const latRad = Math.atan(Math.sinh(Math.PI * (1 - 2 * yTile / n)));
+  const lat = latRad * 180 / Math.PI;
   return [lat, lng];
 }
 
 function findRouteAvoidingTiles(start, end) {
   const startIdx = getTileIndices(start[0], start[1]);
   const endIdx = getTileIndices(end[0], end[1]);
-  const startKey = `${startIdx.tileLat},${startIdx.tileLng}`;
-  const endKey = `${endIdx.tileLat},${endIdx.tileLng}`;
+  const startKey = `${startIdx.z},${startIdx.xTile},${startIdx.yTile}`;
+  const endKey = `${endIdx.z},${endIdx.xTile},${endIdx.yTile}`;
   const avoid = new Set(tilesVisited);
   avoid.delete(startKey);
   avoid.delete(endKey);
@@ -502,24 +503,24 @@ function findRouteAvoidingTiles(start, end) {
   const parents = {};
   parents[startKey] = null;
   const visited = new Set([startKey]);
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  const dirs = [[1,0],[0,1],[-1,0],[0,-1]];
   while (queue.length > 0 && visited.size < 10000) {
     const cur = queue.shift();
-    const curKey = `${cur.tileLat},${cur.tileLng}`;
-    if (cur.tileLat === endIdx.tileLat && cur.tileLng === endIdx.tileLng) {
+    const curKey = `${cur.z},${cur.xTile},${cur.yTile}`;
+    if (cur.xTile === endIdx.xTile && cur.yTile === endIdx.yTile) {
       const tiles = [];
       let k = curKey;
       while (k) {
-        const [tLat, tLng] = k.split(',').map(Number);
-        tiles.push({tileLat:tLat, tileLng:tLng});
+        const [z, x, y] = k.split(',').map(Number);
+        tiles.push({z, xTile:x, yTile:y});
         k = parents[k];
       }
       tiles.reverse();
-      return tiles.map(t => tileCenter(t.tileLat, t.tileLng));
+      return tiles.map(t => tileCenter(t.xTile, t.yTile, t.z));
     }
-    for (const [dLat, dLng] of dirs) {
-      const n = {tileLat: cur.tileLat + dLat, tileLng: cur.tileLng + dLng};
-      const nKey = `${n.tileLat},${n.tileLng}`;
+    for (const [dx, dy] of dirs) {
+      const n = {z: cur.z, xTile: cur.xTile + dx, yTile: cur.yTile + dy};
+      const nKey = `${n.z},${n.xTile},${n.yTile}`;
       if (avoid.has(nKey) || visited.has(nKey)) continue;
       visited.add(nKey);
       parents[nKey] = curKey;
@@ -537,38 +538,38 @@ function pushSorted(queue, node) {
 function findRouteWithPenalty(start, end, penalty) {
   const startIdx = getTileIndices(start[0], start[1]);
   const endIdx = getTileIndices(end[0], end[1]);
-  const startKey = `${startIdx.tileLat},${startIdx.tileLng}`;
-  const endKey = `${endIdx.tileLat},${endIdx.tileLng}`;
+  const startKey = `${startIdx.z},${startIdx.xTile},${startIdx.yTile}`;
+  const endKey = `${endIdx.z},${endIdx.xTile},${endIdx.yTile}`;
   const costs = {};
   const parents = {};
   const queue = [];
-  pushSorted(queue, { tileLat: startIdx.tileLat, tileLng: startIdx.tileLng, cost: 0 });
+  pushSorted(queue, { z: startIdx.z, xTile: startIdx.xTile, yTile: startIdx.yTile, cost: 0 });
   costs[startKey] = 0;
   parents[startKey] = null;
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  const dirs = [[1,0],[0,1],[-1,0],[0,-1]];
   let iterations = 0;
   while (queue.length > 0 && iterations < 20000) {
     const cur = queue.shift();
-    const curKey = `${cur.tileLat},${cur.tileLng}`;
-    if (cur.tileLat === endIdx.tileLat && cur.tileLng === endIdx.tileLng) {
+    const curKey = `${cur.z},${cur.xTile},${cur.yTile}`;
+    if (cur.xTile === endIdx.xTile && cur.yTile === endIdx.yTile) {
       const tiles = [];
       let k = curKey;
       while (k) {
-        const [tLat, tLng] = k.split(',').map(Number);
-        tiles.push({ tileLat: tLat, tileLng: tLng });
+        const [z, x, y] = k.split(',').map(Number);
+        tiles.push({ z, xTile: x, yTile: y });
         k = parents[k];
       }
       tiles.reverse();
-      return tiles.map(t => tileCenter(t.tileLat, t.tileLng));
+      return tiles.map(t => tileCenter(t.xTile, t.yTile, t.z));
     }
-    for (const [dLat, dLng] of dirs) {
-      const n = { tileLat: cur.tileLat + dLat, tileLng: cur.tileLng + dLng };
-      const nKey = `${n.tileLat},${n.tileLng}`;
+    for (const [dx, dy] of dirs) {
+      const n = { z: cur.z, xTile: cur.xTile + dx, yTile: cur.yTile + dy, cost: 0 };
+      const nKey = `${n.z},${n.xTile},${n.yTile}`;
       let cost = cur.cost + (tilesVisited.has(nKey) ? penalty : 1);
       if (costs[nKey] === undefined || cost < costs[nKey]) {
         costs[nKey] = cost;
         parents[nKey] = curKey;
-        pushSorted(queue, { tileLat: n.tileLat, tileLng: n.tileLng, cost });
+        pushSorted(queue, { z: n.z, xTile: n.xTile, yTile: n.yTile, cost });
       }
     }
     iterations++;
@@ -578,10 +579,13 @@ function findRouteWithPenalty(start, end, penalty) {
 
 async function getRouteOptions(start, end) {
   const options = [];
+  // Profil choisi dans le select
+  const profile = document.getElementById('profile')?.value || 'cycling';
   try {
-    const { coords, distance } = await getBikeRoute(start, end);
+    const { coords, distance } = await getOsrmRoute(start, end, profile);
     options.push({ coords, distance });
   } catch (e) {}
+  // Alternatives avec pénalité sur les tuiles déjà visitées (toujours en mode vélo)
   const penalties = [5, 10, 20];
   for (const p of penalties) {
     const coords = findRouteWithPenalty(start, end, p);
